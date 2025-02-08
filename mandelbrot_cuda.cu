@@ -1,12 +1,17 @@
 #include <cuda_runtime.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <math.h>  // For log() function
+#include <math.h>
 
 #define WIDTH 2560
 #define HEIGHT 1440
 #define MAX_ITER 65535
-#define COLOR_DEPTH 65535  // 16-bit max value
+#define COLOR_DEPTH 65535  
+
+// Global variables for position & zoom (updated via Zig)
+__device__ float offset_x = -0.5f;
+__device__ float offset_y = 0.0f;
+__device__ float zoom = 1.0f;
 
 __device__ uint16_t mandelbrot(float x, float y) {
     float zx = 0.0, zy = 0.0;
@@ -21,16 +26,20 @@ __device__ uint16_t mandelbrot(float x, float y) {
     return iter;
 }
 
-// Fix coordinate mapping for full image rendering
-extern "C" __global__ void compute_mandelbrot(uint16_t *pixels) {
+extern "C" __global__ void compute_mandelbrot(uint16_t *pixels, float new_offset_x, float new_offset_y, float new_zoom) {
     int px = blockIdx.x * blockDim.x + threadIdx.x;
     int py = blockIdx.y * blockDim.y + threadIdx.y;
 
     if (px >= WIDTH || py >= HEIGHT) return;
 
-    // Corrected coordinate mapping
-    float x0 = ((float)px / (float)(WIDTH - 1)) * 3.5f - 2.5f;  
-    float y0 = ((float)py / (float)(HEIGHT - 1)) * 2.0f - 1.0f; 
+    // Update global offsets dynamically
+    offset_x = new_offset_x;
+    offset_y = new_offset_y;
+    zoom = new_zoom;
+
+    // Compute scaled coordinates based on offset & zoom
+    float x0 = (px - WIDTH / 2.0f) / (WIDTH / 2.0f) * (3.5f / zoom) + offset_x;
+    float y0 = (py - HEIGHT / 2.0f) / (HEIGHT / 2.0f) * (2.0f / zoom) + offset_y;
 
     uint16_t iter = mandelbrot(x0, y0);
 
@@ -46,12 +55,11 @@ extern "C" __global__ void compute_mandelbrot(uint16_t *pixels) {
     pixels[index + 2] = b;
 }
 
-// Ensure CUDA execution completes before copying data
-extern "C" void launch_mandelbrot(uint16_t *pixels) {
+extern "C" void launch_mandelbrot(uint16_t *pixels, float offset_x, float offset_y, float zoom) {
     dim3 threadsPerBlock(16, 16);
     dim3 numBlocks((WIDTH + threadsPerBlock.x - 1) / threadsPerBlock.x, 
                    (HEIGHT + threadsPerBlock.y - 1) / threadsPerBlock.y);
 
-    compute_mandelbrot<<<numBlocks, threadsPerBlock>>>(pixels);
+    compute_mandelbrot<<<numBlocks, threadsPerBlock>>>(pixels, offset_x, offset_y, zoom);
     cudaDeviceSynchronize();
 }
