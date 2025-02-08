@@ -1,23 +1,38 @@
-
 const std = @import("std");
 const sdl = @cImport(@cInclude("SDL2/SDL.h"));
 
 const width = 800;
 const height = 600;
-const max_iter = 256;
+const max_iter = 255; // Maximum iterations for color mapping
 
-// Compute the Mandelbrot set color for a given pixel
+// Mandelbrot function to determine depth of divergence
 fn mandelbrot(x: f64, y: f64) u8 {
     var zx: f64 = 0;
     var zy: f64 = 0;
     var iter: u8 = 0;
 
     while (zx * zx + zy * zy < 4 and iter < max_iter) : (iter += 1) {
-        let temp = zx * zx - zy * zy + x;
+        const temp = zx * zx - zy * zy + x;
         zy = 2 * zx * zy + y;
         zx = temp;
     }
     return iter;
+}
+
+// Function to map iterations to a vivid OLED-friendly color
+fn color_mapping(iter: u8) [3]u8 {
+    if (iter == max_iter) {
+        return [3]u8{ 0, 0, 0 }; // Deep black background
+    }
+    
+    // Gradient transition: Dark Orange → Pink → Red
+    const t: f64 = @as(f64, @floatFromInt(iter)) / @as(f64, max_iter);
+    
+    const r: u8 = @intFromFloat(255 * (1.0 - t * 0.3)); // Red dominates
+    const g: u8 = @intFromFloat(120 * (1.0 - t * 0.7)); // Dark Orange fades to pink
+    const b: u8 = @intFromFloat(200 * (t)); // Blueish tint for pink transition
+
+    return [3]u8{ r, g, b };
 }
 
 // Save the image as a PPM file
@@ -36,7 +51,7 @@ pub fn main() !void {
     }
     defer sdl.SDL_Quit();
 
-    const window = sdl.SDL_CreateWindow("Mandelbrot Fractal", sdl.SDL_WINDOWPOS_CENTERED, sdl.SDL_WINDOWPOS_CENTERED, width, height, sdl.SDL_WINDOW_SHOWN);
+    const window = sdl.SDL_CreateWindow("Mandelbrot OLED Colors", sdl.SDL_WINDOWPOS_CENTERED, sdl.SDL_WINDOWPOS_CENTERED, width, height, sdl.SDL_WINDOW_SHOWN);
     if (window == null) {
         std.debug.print("Failed to create window: {s}\n", .{sdl.SDL_GetError()});
         return;
@@ -54,22 +69,22 @@ pub fn main() !void {
     var pixels = try std.heap.page_allocator.alloc(u8, pixels_size);
     defer std.heap.page_allocator.free(pixels);
 
-    // Generate Mandelbrot fractal
+    // Compute Mandelbrot set and apply OLED-friendly colors
     for (0..height) |py| {
         for (0..width) |px| {
             const x0 = @as(f64, @floatFromInt(px)) / @as(f64, width) * 3.5 - 2.5;
             const y0 = @as(f64, @floatFromInt(py)) / @as(f64, height) * 2.0 - 1.0;
             const iter = mandelbrot(x0, y0);
-            const color: u8 = @intCast(iter * 255 / max_iter);
+            const color = color_mapping(iter);
 
             const index = (py * width + px) * 3;
-            pixels[index] = color;
-            pixels[index + 1] = color / 2;
-            pixels[index + 2] = 255 - color;
+            pixels[index] = color[0];   // Red channel
+            pixels[index + 1] = color[1]; // Green channel
+            pixels[index + 2] = color[2]; // Blue channel
         }
     }
 
-    // Save image
+    // Save the image
     try save_to_ppm(pixels);
 
     // Display in SDL2 window
