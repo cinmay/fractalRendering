@@ -1,8 +1,8 @@
 const std = @import("std");
 const sdl = @cImport(@cInclude("SDL2/SDL.h"));
 
-const width = 800;
-const height = 600;
+const width = 2560; // Screen width
+const height = 1440; // Screen height
 const max_iter = 255;
 
 // Mandelbrot function
@@ -19,22 +19,11 @@ fn mandelbrot(x: f64, y: f64) u8 {
     return iter;
 }
 
-// Color mapping function
-fn color_mapping(iter: u8) [3]u8 {
-    if (iter == max_iter) {
-        return [3]u8{ 0, 0, 0 }; // Deep black background
-    }
-    const t: f64 = @as(f64, @floatFromInt(iter)) / @as(f64, max_iter);
-    const r: u8 = @intFromFloat(255 * (1.0 - t * 0.3)); // Red dominates
-    const g: u8 = @intFromFloat(120 * (1.0 - t * 0.7)); // Dark Orange fades to pink
-    const b: u8 = @intFromFloat(200 * (t)); // Blueish tint for pink transition
-    return [3]u8{ r, g, b };
-}
-
-// Save PPM image
+// Save image as PPM
 fn save_to_ppm(pixels: []u8) !void {
     var file = try std.fs.cwd().createFile("mandelbrot.ppm", .{ .truncate = true });
     defer file.close();
+
     try file.writer().print("P6\n{} {}\n255\n", .{ width, height });
     try file.writer().writeAll(pixels);
 }
@@ -46,7 +35,7 @@ pub fn main() !void {
     }
     defer sdl.SDL_Quit();
 
-    const window = sdl.SDL_CreateWindow("Mandelbrot Rotated 90°", sdl.SDL_WINDOWPOS_CENTERED, sdl.SDL_WINDOWPOS_CENTERED, width, height, sdl.SDL_WINDOW_SHOWN);
+    const window = sdl.SDL_CreateWindow("Mandelbrot 2560x1440 (Rotated & Fixed)", sdl.SDL_WINDOWPOS_CENTERED, sdl.SDL_WINDOWPOS_CENTERED, width, height, sdl.SDL_WINDOW_SHOWN);
     if (window == null) {
         std.debug.print("Failed to create window: {s}\n", .{sdl.SDL_GetError()});
         return;
@@ -64,22 +53,24 @@ pub fn main() !void {
     var pixels = try std.heap.page_allocator.alloc(u8, pixels_size);
     defer std.heap.page_allocator.free(pixels);
 
-    // Compute Mandelbrot set with 90-degree counterclockwise rotation
+    // Compute Mandelbrot set (Rotated 90° counterclockwise with fixed aspect ratio)
     for (0..height) |py| {
         for (0..width) |px| {
-            const x0 = @as(f64, @floatFromInt(py)) / @as(f64, height) * 3.5 - 2.5;
-            const y0 = @as(f64, @floatFromInt(px)) / @as(f64, width) * 2.0 - 1.0;
+            // Adjusted aspect ratio mapping after rotation
+            const x0 = @as(f64, @floatFromInt(py)) / @as(f64, height) * 3.0 - 2.0; // [-2.0, 1.0] range
+            const y0 = @as(f64, @floatFromInt(px)) / @as(f64, width) * 3.0 - 1.5; // [-1.5, 1.5] range
+
             const iter = mandelbrot(x0, y0);
-            const color = color_mapping(iter);
+            const color: u8 = @intCast(@as(u16, iter) * 255 / max_iter);
 
             const index = (py * width + px) * 3;
-            pixels[index] = color[0];
-            pixels[index + 1] = color[1];
-            pixels[index + 2] = color[2];
+            pixels[index] = color;
+            pixels[index + 1] = color / 2;
+            pixels[index + 2] = 255 - color;
         }
     }
 
-    // Save the image
+    // Save image
     try save_to_ppm(pixels);
 
     // Display in SDL2 window
@@ -92,7 +83,7 @@ pub fn main() !void {
 
     _ = sdl.SDL_UpdateTexture(texture, null, pixels.ptr, width * 3);
 
-    // Event loop with key handling for exiting
+    // Event loop
     var running = true;
     var event: sdl.SDL_Event = undefined;
 
@@ -102,7 +93,9 @@ pub fn main() !void {
                 sdl.SDL_QUIT => running = false,
                 sdl.SDL_KEYDOWN => {
                     switch (event.key.keysym.sym) {
-                        sdl.SDLK_q, sdl.SDLK_ESCAPE => running = false, // Exit on Q or Escape
+                        sdl.SDLK_q, sdl.SDLK_ESCAPE => {
+                            running = false; // Exit on Q or Escape
+                        },
                         else => {},
                     }
                 },
