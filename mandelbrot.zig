@@ -10,15 +10,16 @@ extern fn cudaFree(ptr: [*]u16) c_int;
 extern fn cudaMemcpy(dst: [*]u16, src: [*]const u16, size: usize, kind: c_int) c_int;
 extern fn launch_mandelbrot(pixels: [*]u16) void;
 
-// Save HDR 16-bit image as PPM
 pub fn save_to_ppm(pixels: []u16) !void {
     var file = try std.fs.cwd().createFile("mandelbrot_16bit.ppm", .{ .truncate = true });
     defer file.close();
 
     try file.writer().print("P6\n{} {}\n65535\n", .{ width, height });
+
     for (pixels) |val| {
         try file.writer().writeAll(&[_]u8{ @truncate(val >> 8), @truncate(val & 0xFF) });
     }
+
     std.debug.print("✅ Mandelbrot saved to mandelbrot_16bit.ppm\n", .{});
 }
 
