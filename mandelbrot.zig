@@ -19,18 +19,16 @@ fn mandelbrot(x: f64, y: f64) u8 {
     return iter;
 }
 
-// HDR Color mapping (16-bit precision)
+// HDR Color mapping
 fn hdr_color_mapping(iter: u8) [3]u16 {
     if (iter == max_iter) {
         return [3]u16{ 0, 0, 0 }; // Deep black background
     }
 
     const t: f64 = @as(f64, @floatFromInt(iter)) / @as(f64, max_iter);
-
-    // Vibrant OLED HDR colors: Orange → Pink → Bright Red
-    const r: u16 = @intFromFloat(65535.0 * (1.0 - t * 0.2)); // Deep red
-    const g: u16 = @intFromFloat(35000.0 * (1.0 - t * 0.7)); // Orange fading into pink
-    const b: u16 = @intFromFloat(40000.0 * t); // Blueish-pinkish hue
+    const r: u16 = @intFromFloat(65535.0 * (1.0 - t * 0.2));
+    const g: u16 = @intFromFloat(35000.0 * (1.0 - t * 0.7));
+    const b: u16 = @intFromFloat(40000.0 * t);
 
     return [3]u16{ r, g, b };
 }
@@ -38,7 +36,7 @@ fn hdr_color_mapping(iter: u8) [3]u16 {
 // Convert HDR colors (16-bit) to 8-bit for SDL rendering
 fn convert_hdr_to_8bit(hdr: [3]u16) [3]u8 {
     return [3]u8{
-        @intCast(hdr[0] >> 8), // Convert 16-bit to 8-bit
+        @intCast(hdr[0] >> 8),
         @intCast(hdr[1] >> 8),
         @intCast(hdr[2] >> 8),
     };
@@ -83,11 +81,22 @@ pub fn main() !void {
     defer std.heap.page_allocator.free(pixels_hdr);
     defer std.heap.page_allocator.free(pixels_sdl);
 
-    // Compute Mandelbrot set with HDR colors
+    // Create SDL Texture
+    const texture = sdl.SDL_CreateTexture(renderer, sdl.SDL_PIXELFORMAT_RGB24, sdl.SDL_TEXTUREACCESS_STREAMING, width, height);
+    if (texture == null) {
+        std.debug.print("Failed to create texture: {s}\n", .{sdl.SDL_GetError()});
+        return;
+    }
+    defer sdl.SDL_DestroyTexture(texture);
+
+    var running = true;
+    var event: sdl.SDL_Event = undefined;
+
+    // Compute Mandelbrot set with progress updates
     for (0..height) |py| {
         for (0..width) |px| {
-            const x0 = @as(f64, @floatFromInt(py)) / @as(f64, height) * 3.0 - 2.0; // [-2.0, 1.0] range
-            const y0 = @as(f64, @floatFromInt(px)) / @as(f64, width) * 3.0 - 1.5; // [-1.5, 1.5] range
+            const x0 = @as(f64, @floatFromInt(py)) / @as(f64, height) * 3.0 - 2.0;
+            const y0 = @as(f64, @floatFromInt(px)) / @as(f64, width) * 3.0 - 1.5;
 
             const iter = mandelbrot(x0, y0);
             const color_hdr = hdr_color_mapping(iter);
@@ -102,34 +111,40 @@ pub fn main() !void {
             pixels_sdl[index + 1] = color_8bit[1];
             pixels_sdl[index + 2] = color_8bit[2];
         }
+
+        // Update SDL Texture row by row
+        _ = sdl.SDL_UpdateTexture(texture, null, pixels_sdl.ptr, width * 3);
+        _ = sdl.SDL_RenderClear(renderer);
+        _ = sdl.SDL_RenderCopy(renderer, texture, null, null);
+        sdl.SDL_RenderPresent(renderer);
+
+        // Handle events during rendering (to prevent "Not Responding" issue)
+        while (sdl.SDL_PollEvent(&event) != 0) {
+            switch (event.type) {
+                sdl.SDL_QUIT => running = false,
+                sdl.SDL_KEYDOWN => {
+                    switch (event.key.keysym.sym) {
+                        sdl.SDLK_q, sdl.SDLK_ESCAPE => running = false,
+                        else => {},
+                    }
+                },
+                else => {},
+            }
+        }
+        if (!running) break; // Exit if user quits early
     }
 
     // Save HDR image
     try save_to_ppm(pixels_hdr);
 
-    // Display in SDL2 window using 8-bit format (since SDL2 doesn't support HDR)
-    const texture = sdl.SDL_CreateTexture(renderer, sdl.SDL_PIXELFORMAT_RGB24, sdl.SDL_TEXTUREACCESS_STATIC, width, height);
-    if (texture == null) {
-        std.debug.print("Failed to create texture: {s}\n", .{sdl.SDL_GetError()});
-        return;
-    }
-    defer sdl.SDL_DestroyTexture(texture);
-
-    _ = sdl.SDL_UpdateTexture(texture, null, pixels_sdl.ptr, width * 3);
-
-    // Event loop with Q and Esc to exit
-    var running = true;
-    var event: sdl.SDL_Event = undefined;
-
+    // Keep the window open until user exits
     while (running) {
         while (sdl.SDL_PollEvent(&event) != 0) {
             switch (event.type) {
                 sdl.SDL_QUIT => running = false,
                 sdl.SDL_KEYDOWN => {
                     switch (event.key.keysym.sym) {
-                        sdl.SDLK_q, sdl.SDLK_ESCAPE => {
-                            running = false; // Exit on Q or Escape
-                        },
+                        sdl.SDLK_q, sdl.SDLK_ESCAPE => running = false,
                         else => {},
                     }
                 },
