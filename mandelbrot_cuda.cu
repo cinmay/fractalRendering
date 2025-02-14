@@ -43,16 +43,33 @@ extern "C" __global__ void compute_mandelbrot(uint16_t *pixels, float new_offset
 
     uint16_t iter = mandelbrot(x0, y0);
 
-    // Nonlinear color mapping
-    float t = logf((float)iter + 1) / logf((float)MAX_ITER);
-    uint16_t r = (uint16_t)(t * COLOR_DEPTH);
-    uint16_t g = (uint16_t)((t * 0.8f) * COLOR_DEPTH);
-    uint16_t b = (uint16_t)((t * 0.5f) * COLOR_DEPTH);
+    // Compute a normalized value t based on iterations
+    float t = logf((float)iter + 1.0f) / logf((float)MAX_ITER);
+
+    float r, g, b;
+    if (t < 0.5f) {
+        // Interpolate from deep blue (0,0,139) to neon pink (255,20,147)
+        float frac = t / 0.5f;
+        r = (1.0f - frac) * 0.0f + frac * 255.0f;
+        g = (1.0f - frac) * 0.0f + frac * 20.0f;
+        b = (1.0f - frac) * 139.0f + frac * 147.0f;
+    } else {
+        // Interpolate from neon pink (255,20,147) to neon orange (255,165,0)
+        float frac = (t - 0.5f) / 0.5f;
+        r = (1.0f - frac) * 255.0f + frac * 255.0f; // remains 255
+        g = (1.0f - frac) * 20.0f + frac * 165.0f;
+        b = (1.0f - frac) * 147.0f + frac * 0.0f;
+    }
+
+    // Scale colors from 0-255 to 0-COLOR_DEPTH (65535)
+    uint16_t r_scaled = (uint16_t)(r * 257.0f);
+    uint16_t g_scaled = (uint16_t)(g * 257.0f);
+    uint16_t b_scaled = (uint16_t)(b * 257.0f);
 
     int index = (py * WIDTH + px) * 3;
-    pixels[index] = r;
-    pixels[index + 1] = g;
-    pixels[index + 2] = b;
+    pixels[index] = r_scaled;
+    pixels[index + 1] = g_scaled;
+    pixels[index + 2] = b_scaled;
 }
 
 extern "C" void launch_mandelbrot(uint16_t *pixels, float offset_x, float offset_y, float zoom) {
