@@ -26,65 +26,75 @@ __device__ uint16_t mandelbrot(float x, float y) {
     return iter;
 }
 
+// New double precision Mandelbrot iteration function.
+__device__ uint16_t mandelbrot_dp(double x, double y) {
+    double zx = 0.0, zy = 0.0;
+    uint16_t iter = 0;
+    while (zx * zx + zy * zy < 4.0 && iter < MAX_ITER) {
+        double temp = zx * zx - zy * zy + x;
+        zy = 2.0 * zx * zy + y;
+        zx = temp;
+        iter++;
+    }
+    return iter;
+}
+
 extern "C" __global__ void compute_mandelbrot(uint16_t *pixels, float new_offset_x, float new_offset_y, float new_zoom) {
     int px = blockIdx.x * blockDim.x + threadIdx.x;
     int py = blockIdx.y * blockDim.y + threadIdx.y;
 
     if (px >= WIDTH || py >= HEIGHT) return;
 
-    // Update global offsets dynamically.
-    offset_x = new_offset_x;
-    offset_y = new_offset_y;
-    zoom = new_zoom;
+    // Use double precision for better accuracy on high zoom levels.
+    double offset_x_d = (double)new_offset_x;
+    double offset_y_d = (double)new_offset_y;
+    double zoom_d = (double)new_zoom;
 
-    // Convert pixel coordinates to normalized device coordinates in the range [-1, 1].
-    float u = (px - WIDTH / 2.0f) / (WIDTH / 2.0f);
-    float v = (py - HEIGHT / 2.0f) / (HEIGHT / 2.0f);
+    // Convert pixel coordinates to normalized device coordinates [-1, 1].
+    double u = ((double)px - (double)WIDTH / 2.0) / ((double)WIDTH / 2.0);
+    double v = ((double)py - (double)HEIGHT / 2.0) / ((double)HEIGHT / 2.0);
 
-    // Compute the unrotated complex coordinates.
-    float x_unrot = u * (3.5f / zoom) + offset_x;
-    float y_unrot = v * (2.0f / zoom) + offset_y;
+    // Compute the unrotated complex coordinates using double precision.
+    double x_unrot = u * (3.5 / zoom_d) + offset_x_d;
+    double y_unrot = v * (2.0 / zoom_d) + offset_y_d;
 
     // Apply a 90° clockwise rotation: (x, y) -> (y, -x)
-    float x0 = y_unrot;
-    float y0 = -x_unrot;
+    double x0 = y_unrot;
+    double y0 = -x_unrot;
 
-    uint16_t iter = mandelbrot(x0, y0);
+    // Compute the iteration count using double precision.
+    uint16_t iter = mandelbrot_dp(x0, y0);
 
-    // Normalize iteration count t into [0, 1] using logarithmic scaling.
+    // Normalize iteration count into [0,1] using logarithmic scaling.
     float t = logf((float)iter + 1.0f) / logf((float)MAX_ITER);
 
     float r, g, b;
-    // Low threshold to force the background to be completely black.
+    // Force low iteration counts to black.
     const float low_threshold = 0.1f;
 
     if (t <= 0.35f) {
-        // For t below the threshold, color remains black.
         float u_val = 0.0f;
         if (t > low_threshold) {
             u_val = (t - low_threshold) / (0.35f - low_threshold);
         }
-        // Interpolate from black to neon pink: (0,0,0) -> (255,20,147)
+        // Interpolate from black to neon pink.
         r = u_val * 255.0f;
         g = u_val * 20.0f;
         b = u_val * 147.0f;
     } else if (t <= 0.5f) {
-        // Transition from neon pink to white.
         float u_val = (t - 0.35f) / (0.5f - 0.35f);
         r = 255.0f;
-        g = 20.0f  + u_val * (255.0f - 20.0f);
+        g = 20.0f + u_val * (255.0f - 20.0f);
         b = 147.0f + u_val * (255.0f - 147.0f);
     } else if (t <= 0.65f) {
-        // Transition from white to neon orange.
         float u_val = (t - 0.5f) / (0.65f - 0.5f);
         r = 255.0f;
         g = 255.0f + u_val * (165.0f - 255.0f);
-        b = 255.0f + u_val * (0.0f   - 255.0f);
+        b = 255.0f + u_val * (0.0f - 255.0f);
     } else {
-        // Fade from neon orange back to black.
         float u_val = (t - 0.65f) / (1.0f - 0.65f);
-        r = 255.0f + u_val * (0.0f   - 255.0f);
-        g = 165.0f + u_val * (0.0f   - 165.0f);
+        r = 255.0f + u_val * (0.0f - 255.0f);
+        g = 165.0f + u_val * (0.0f - 165.0f);
         b = 0.0f;
     }
 
