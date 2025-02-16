@@ -5,7 +5,7 @@
 
 #define WIDTH 2560
 #define HEIGHT 1440
-#define MAX_ITER 65535
+#define BASE_MAX_ITER 2047
 #define COLOR_DEPTH 65535  
 
 // Global variables for position & zoom (updated via Zig)
@@ -13,11 +13,11 @@ __device__ float offset_x = -0.5f;
 __device__ float offset_y = 0.0f;
 __device__ float zoom = 1.0f;
 
-__device__ uint16_t mandelbrot(float x, float y) {
-    float zx = 0.0, zy = 0.0;
+// Updated single-precision Mandelbrot function with dynamic max iterations.
+__device__ uint16_t mandelbrot(float x, float y, uint16_t max_iter) {
+    float zx = 0.0f, zy = 0.0f;
     uint16_t iter = 0;
-
-    while (zx * zx + zy * zy < 4.0f && iter < MAX_ITER) {
+    while (zx * zx + zy * zy < 4.0f && iter < max_iter) {
         float temp = zx * zx - zy * zy + x;
         zy = 2.0f * zx * zy + y;
         zx = temp;
@@ -26,11 +26,11 @@ __device__ uint16_t mandelbrot(float x, float y) {
     return iter;
 }
 
-// New double precision Mandelbrot iteration function.
-__device__ uint16_t mandelbrot_dp(double x, double y) {
+// Updated double precision Mandelbrot function.
+__device__ uint16_t mandelbrot_dp(double x, double y, uint16_t max_iter) {
     double zx = 0.0, zy = 0.0;
     uint16_t iter = 0;
-    while (zx * zx + zy * zy < 4.0 && iter < MAX_ITER) {
+    while (zx * zx + zy * zy < 4.0 && iter < max_iter) {
         double temp = zx * zx - zy * zy + x;
         zy = 2.0 * zx * zy + y;
         zx = temp;
@@ -45,10 +45,14 @@ extern "C" __global__ void compute_mandelbrot(uint16_t *pixels, float new_offset
 
     if (px >= WIDTH || py >= HEIGHT) return;
 
-    // Use double precision for better accuracy on high zoom levels.
+    // Use double precision for improved accuracy at high zoom levels.
     double offset_x_d = (double)new_offset_x;
     double offset_y_d = (double)new_offset_y;
     double zoom_d = (double)new_zoom;
+
+    // Compute a dynamic maximum iteration count based on zoom.
+    // This heuristic increases iterations as you zoom in, which re-normalizes the color mapping.
+    uint16_t dynamic_max_iter = (uint16_t)(BASE_MAX_ITER * sqrt(zoom_d));
 
     // Convert pixel coordinates to normalized device coordinates [-1, 1].
     double u = ((double)px - (double)WIDTH / 2.0) / ((double)WIDTH / 2.0);
@@ -62,11 +66,12 @@ extern "C" __global__ void compute_mandelbrot(uint16_t *pixels, float new_offset
     double x0 = y_unrot;
     double y0 = -x_unrot;
 
-    // Compute the iteration count using double precision.
-    uint16_t iter = mandelbrot_dp(x0, y0);
+    // Compute the iteration count using double precision and the dynamic max iteration count.
+    uint16_t iter = mandelbrot_dp(x0, y0, dynamic_max_iter);
 
-    // Normalize iteration count into [0,1] using logarithmic scaling.
-    float t = logf((float)iter + 1.0f) / logf((float)MAX_ITER);
+    // Normalize iteration count into [0, 1] using logarithmic scaling.
+    // Note: t now depends on dynamic_max_iter so the color mapping adjusts with zoom.
+    float t = logf((float)iter + 1.0f) / logf((float)dynamic_max_iter);
 
     float r, g, b;
     // Force low iteration counts to black.
