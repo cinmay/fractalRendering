@@ -79,12 +79,12 @@ pub fn main() !void {
                 sdl.SDL_KEYDOWN => {
                     switch (event.key.keysym.sym) {
                         sdl.SDLK_q, sdl.SDLK_ESCAPE => running = false,
-                        sdl.SDLK_a => offset_x -= move_step / zoom, // Move left
-                        sdl.SDLK_s => offset_x += move_step / zoom, // Move right
-                        sdl.SDLK_w => offset_y -= move_step / zoom, // Move up
-                        sdl.SDLK_r => offset_y += move_step / zoom, // Move down
-                        sdl.SDLK_t => zoom *= zoom_factor, // Zoom in
-                        sdl.SDLK_d => zoom /= zoom_factor, // Zoom out
+                        sdl.SDLK_a, sdl.SDLK_LEFT => offset_x -= move_step / zoom,
+                        sdl.SDLK_s, sdl.SDLK_RIGHT => offset_x += move_step / zoom,
+                        sdl.SDLK_w, sdl.SDLK_UP => offset_y -= move_step / zoom,
+                        sdl.SDLK_r, sdl.SDLK_DOWN => offset_y += move_step / zoom,
+                        sdl.SDLK_p, sdl.SDLK_PAGEUP => zoom *= zoom_factor,
+                        sdl.SDLK_t, sdl.SDLK_PAGEDOWN => zoom /= zoom_factor,
                         else => {},
                     }
                     try render_mandelbrot(pixels, cuda_pixels);
